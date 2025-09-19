@@ -19,7 +19,7 @@
     header { background: #003366; color: #fff; padding: 12px 20px; }
     header h1 { margin: 0; font-size: 30px; }
     main { display: flex; height: calc(100vh - 60px); }
-    aside { width: 280px; background: #fff; border-right: 1px solid #ddd; padding: 10px; overflow-y: auto; }
+    aside { width: 200px; background: #fff; border-right: 1px solid #ddd; padding: 10px; overflow-y: auto; }
     #map { flex: 1; min-height: 100%; }
     .info-panel { padding: 10px; background: #fff; border-top: 1px solid #ddd; }
     .stat { margin-bottom: 8px; }
@@ -38,6 +38,27 @@
     .log-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
     select { padding: 4px; }
 
+  .grid-label {
+   background: rgba(255,255,255,0.8);
+   padding: 1px 4px;
+   border-radius: 3px;
+   font-size: 11px;
+   font-family: Arial, sans-serif;
+   border: 1px solid #333;
+   pointer-events: none;
+  }
+  .control-box {
+   position: absolute;
+   bottom: 10px;   /* pojok bawah */
+   right: 10px;    /* pojok kanan */
+   z-index: 1000;
+   background: white;
+   padding: 5px;
+   border: 1px solid #ccc;
+   border-radius: 4px;
+   font-size: 13px;
+  }
+
     /* Responsive HP/Tablet */
     @media (max-width: 768px) {
       main { flex-direction: column; }
@@ -45,6 +66,12 @@
       #map { height: 40vh; }
       .chart-container { height: 25vh; }
       .log-container { max-height: 30vh; }
+    }
+    .kapal-label {
+    font-weight: bold;
+    color: rgb(7, 7, 7);
+    text-shadow: 1px 1px 2px rgb(136, 1, 1);
+    font-size: 12px;
     }
   </style>
 </head>
@@ -66,6 +93,15 @@
     <!-- Area peta + detail -->
     <section style="flex:1;display:flex;flex-direction:column;">
       <div id="map"></div>
+        <div class="control-box">
+          Interval Grid: 
+          <select id="intervalSelect">
+           <option value="1">1°</option>
+           <option value="5">5°</option>
+           <option value="10" selected>10°</option>
+          </select>
+        </div>
+      </div>
 
       <div class="info-panel">
         <h3>Detail Kapal</h3>
@@ -179,6 +215,43 @@
       attribution: "&copy; OpenStreetMap contributors"
     }).addTo(map);
 
+    // Fungsi konversi Decimal Degree → DMS
+    function toDMS(dec, isLat = true) {
+    const dir = dec >= 0 ? (isLat ? "N" : "E") : (isLat ? "S" : "W");
+   const absVal = Math.abs(dec);
+    const deg = Math.floor(absVal);
+    const minFull = (absVal - deg) * 60;
+    const min = Math.floor(minFull);
+    const sec = ((minFull - min) * 60).toFixed(2);
+    return `${deg}° ${min}' ${sec}" ${dir}`;
+    }
+
+
+    // Custom control koordinat di pojok kanan atas
+    const coordControl = L.control({ position: "topright" });
+
+    coordControl.onAdd = function () {
+    const div = L.DomUtil.create("div", "leaflet-bar");
+    div.style.background = "#fff";
+    div.style.padding = "4px 8px";
+    div.style.fontSize = "12px";
+    div.style.fontFamily = "monospace";
+    div.style.color = "#003366";
+    div.innerHTML = "Koordinat: -";
+   return div;
+    };
+
+    coordControl.addTo(map);
+
+    // Update isi koordinat saat mouse bergerak di peta
+    map.on("mousemove", function (e) {
+    const { lat, lng } = e.latlng;
+    coordControl.getContainer().innerHTML =
+    `Koordinat:<br>${toDMS(lat, true)}, ${toDMS(lng, false)}`;
+    });
+
+
+
     const markers = {};
     const shipList = document.getElementById("shipList");
     const logFilter = document.getElementById("logFilter");
@@ -189,14 +262,97 @@
       li.onclick = () => focusShip(ship.id);
       shipList.appendChild(li);
 
-      const marker = L.marker([ship.lat, ship.lng]).addTo(map).bindPopup(ship.name);
+      const marker = L.marker([ship.lat, ship.lng]).addTo(map);
+      marker.bindTooltip(ship.name, { 
+      permanent: true,   // selalu tampil
+      direction: "top",  // posisi label di atas marker
+      offset: [0, -10],  // jarak sedikit di atas marker
+      className: "kapal-label"
+      });
       markers[ship.id] = marker;
+
 
       const opt = document.createElement("option");
       opt.value = ship.id;
       opt.textContent = ship.name;
       logFilter.appendChild(opt);
     });
+
+    var gridLayer = L.layerGroup().addTo(map);
+
+    function formatLat(lat) {
+      if (lat > 0) return lat + "°N";
+      if (lat < 0) return Math.abs(lat) + "°S";
+      return "0°";
+    }
+    function formatLng(lng) {
+     if (lng > 0) return lng + "°E";
+      if (lng < 0) return Math.abs(lng) + "°W";
+      return "0°";
+    }
+
+    function drawGrid(interval) {
+      gridLayer.clearLayers();
+      let bounds = map.getBounds();
+      let latTop = bounds.getNorth() - 0.5;
+      let lngLeft = bounds.getWest() + 0.5;
+
+      // Garis bujur + label atas
+      for (let lng = -180; lng <= 180; lng += interval) {
+       L.polyline([[-90, lng], [90, lng]], { color: "black", weight: 0.4 }).addTo(gridLayer);
+        L.marker([latTop, lng], {
+          icon: L.divIcon({
+         className: "grid-label",
+         html: formatLng(lng),
+         iconSize: [40, 14]
+          })
+        }).addTo(gridLayer);
+      }
+
+       // Garis lintang + label kiri
+      for (let lat = -90; lat <= 90; lat += interval) {
+       L.polyline([[lat, -180], [lat, 180]], { color: "black", weight: 0.4 }).addTo(gridLayer);
+        L.marker([lat, lngLeft], {
+          icon: L.divIcon({
+          className: "grid-label",
+          html: formatLat(lat),
+         iconSize: [40, 14]
+         })
+        }).addTo(gridLayer);
+      }
+    }
+
+    function refreshGrid() {
+      let interval = parseInt(document.getElementById("intervalSelect").value);
+     drawGrid(interval);
+    }
+
+    map.on("moveend", refreshGrid);
+    document.getElementById("intervalSelect").addEventListener("change", refreshGrid);
+    refreshGrid();
+
+    // Default aktif
+    gridLayer.addTo(map);
+
+    // ======== Tombol Toggle ========
+    var toggleControl = L.control({ position: "topright" });
+    toggleControl.onAdd = function () {
+      var div = L.DomUtil.create("div", "leaflet-control-layers-togglegrid");
+      div.innerHTML = "Grid: ON";
+      div.style.userSelect = "none";
+
+      L.DomEvent.on(div, "click", function (e) {
+        if (map.hasLayer(gridLayer)) {
+          map.removeLayer(gridLayer);
+          div.innerHTML = "Grid: OFF";
+        } else {
+          map.addLayer(gridLayer);
+          div.innerHTML = "Grid: ON";
+        }
+      });
+      return div;
+    };
+    toggleControl.addTo(map);
 
     // ==========================================
     // 4) CHART
@@ -382,8 +538,19 @@
           if (!ship) return;
 
           // Update Posisi (hanya jika valid)
-          const lat = parseFloat(row["Latitude"]);
-          const lng = parseFloat(row["Longitude"]);
+         const lat = dmsToDecimal(
+         row["Lat Deg"], 
+         row["Lat Min"], 
+         row["Lat Sec"], 
+         row["Lat Dir"]
+         );
+
+         const lng = dmsToDecimal(
+         row["Lng Deg"], 
+         row["Lng Min"], 
+         row["Lng Sec"], 
+         row["Lng Dir"]
+         );
           if (!isNaN(lat) && !isNaN(lng)) {
             ship.lat = lat; ship.lng = lng;
             markers[ship.id].setLatLng([lat, lng]);
@@ -429,5 +596,3 @@
   </script>
 </body>
 </html>
-
-
