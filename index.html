@@ -551,11 +551,7 @@
          row["Lng Sec"], 
          row["Lng Dir"]
          );
-          if (!isNaN(lat) && !isNaN(lng)) {
-            ship.lat = lat; ship.lng = lng;
-            markers[ship.id].setLatLng([lat, lng]);
-          }
-
+          
           // Update Logistik (jika ada angka)
           if (row["Bahan Bakar"]) { const v = parseInt(row["Bahan Bakar"]); if (!isNaN(v)) ship.fuel = v; }
           if (row["Air Tawar"])    { const v = parseInt(row["Air Tawar"]);    if (!isNaN(v)) ship.water = v; }
